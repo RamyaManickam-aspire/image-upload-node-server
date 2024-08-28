@@ -6,12 +6,23 @@ const cors = require("cors");
 
 const app = express();
 app.use(cors());
+let credentialsBase64 = process.env.GOOGLE_CREDENTIALS;
+if (credentialsBase64) {
+  var credentialsBuffer = Buffer.from(credentialsBase64, "base64");
+  var credentials = JSON.parse(credentialsBuffer.toString("utf8"));
+
+  // Initialize the Google Cloud Storage client with the credentials
+  storage = new Storage({ credentials });
+} else {
+  console.error("GOOGLE_CREDENTIALS environment variable is not set.");
+  process.exit(1); // Exit if the credentials are not set
+}
 
 let projectId = "gcp-learning-433309";
-let keyFilename = process.env.GOOGLE_CREDENTIALS;
+
 const storage = new Storage({
   projectId,
-  keyFilename,
+  credentials,
 });
 
 const bucketName = storage.bucket("upload-node-angular");
