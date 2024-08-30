@@ -1,34 +1,38 @@
 const express = require("express");
 const multer = require("multer");
 const { Storage } = require("@google-cloud/storage");
+const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
 const path = require("path");
 const cors = require("cors");
 
 const app = express();
 app.use(cors());
-let credentialsBase64 = process.env.GOOGLE_CREDENTIALS;
-if (credentialsBase64) {
-  var credentialsBuffer = Buffer.from(credentialsBase64, "base64");
-  var credentials = JSON.parse(credentialsBuffer.toString("utf8"));
 
-  // Initialize the Google Cloud Storage client with the credentials
-  storage = new Storage({ credentials });
-} else {
-  console.error("GOOGLE_CREDENTIALS environment variable is not set.");
-  process.exit(1); // Exit if the credentials are not set
+// Initialize Secret Manager Client
+const secretClient = new SecretManagerServiceClient();
+
+// Function to access the secret
+async function getCredentials() {
+  const [version] = await secretClient.accessSecretVersion({
+    name: "projects/gcp-learning-433309/secrets/my-credentials/versions/latest", // Replace with your secret name
+  });
+  const payload = version.payload.data.toString("utf8");
+  return JSON.parse(payload);
 }
 
-let projectId = "gcp-learning-433309";
+// Function to initialize Google Cloud Storage with credentials from Secret Manager
+async function initializeStorage() {
+  const credentials = await getCredentials();
+  const storage = new Storage({
+    projectId: "gcp-learning-433309",
+    credentials,
+  });
+  return storage.bucket("upload-node-angular");
+}
 
-const storage = new Storage({
-  projectId,
-  credentials,
-});
-
-const bucketName = storage.bucket("upload-node-angular");
-
+// Multer setup to store file in memory
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.memoryStorage(), // Store file in memory for quick access
 });
 
 app.post("/upload", upload.single("file"), async (req, res) => {
@@ -37,14 +41,17 @@ app.post("/upload", upload.single("file"), async (req, res) => {
     if (!req.file) {
       return res.status(400).send("No file uploaded.");
     }
+
+    const bucket = await initializeStorage();
     console.log("File found, trying to upload...");
-    const blob = bucketName.file(req.file.originalname);
+
+    const blob = bucket.file(req.file.originalname);
     const blobStream = blob.createWriteStream({
       resumable: false,
     });
 
     blobStream.on("error", (err) => {
-      console.error("Stream Error:", err);
+      console.error("Stream Error:", err); // Log the error
       res.status(500).send({ message: err.message });
     });
 
@@ -55,7 +62,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
 
     blobStream.end(req.file.buffer);
   } catch (error) {
-    console.error("Catch Error:", error);
+    console.error("Catch Error:", error); // Log the error
     res.status(500).send({ message: error.message });
   }
 });
